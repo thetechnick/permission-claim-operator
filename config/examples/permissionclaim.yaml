@@ -1,0 +1,44 @@
+apiVersion: permissions.thetechnick.ninja/v1alpha1
+kind: PermissionClaim
+metadata:
+  name: my-cool-operator
+spec:
+  namespace: cool-operator-system
+  secretName: cool-operator-kubeconfig
+  rules:
+  - apiGroups:
+    - ""
+    resources:
+    - events
+    verbs:
+    - create
+  - apiGroups:
+    - coordination.k8s.io
+    resources:
+    - leases
+    verbs:
+    - get
+    - list
+    - watch
+    - create
+    - update
+    - patch
+    - delete
+  clusterRules:
+  - apiGroups:
+    - "addons.managed.openshift.io"
+    resources:
+    - addons
+    - addons/status
+    - addons/finalizers
+    - addonoperators
+    - addonoperators/status
+    - addonoperators/finalizers
+    - addoninstances
+    - addoninstances/status
+    verbs:
+    - get
+    - list
+    - watch
+    - update
+    - patch
