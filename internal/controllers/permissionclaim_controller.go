@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -22,7 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"sigs.k8s.io/yaml"
 )
 
 type PermissionClaimController struct {
@@ -118,7 +118,7 @@ func (c *PermissionClaimController) reconcileKubeconfigSecret(
 	saTokenSecret := &corev1.Secret{}
 	if err := c.targetClient.Get(ctx, client.ObjectKey{
 		Name:      secretRef.Name,
-		Namespace: secretRef.Namespace,
+		Namespace: sa.Namespace,
 	}, saTokenSecret); err != nil {
 		return fmt.Errorf("getting ServiceAccount token secret: %w", err)
 	}
@@ -133,7 +133,7 @@ func (c *PermissionClaimController) reconcileKubeconfigSecret(
 		}
 	}
 
-	kubeconfigYaml, err := yaml.Marshal(newKubeconfig)
+	kubeconfigYaml, err := clientcmd.Write(*newKubeconfig)
 	if err != nil {
 		panic(err)
 	}
@@ -150,7 +150,7 @@ func (c *PermissionClaimController) reconcileKubeconfigSecret(
 	if err := controllerutil.SetControllerReference(claim, newSecret, c.scheme); err != nil {
 		return fmt.Errorf("set controller-reference: %w", err)
 	}
-	if err := c.client.Create(ctx, newSecret); err != nil {
+	if err := c.client.Create(ctx, newSecret); err != nil && !errors.IsAlreadyExists(err) {
 		return fmt.Errorf("creating Secret: %w", err)
 	}
 
@@ -177,15 +177,19 @@ func (c *PermissionClaimController) reconcileServiceAccount(
 		return nil, fmt.Errorf("set controller reference: %w", err)
 	}
 
-	if err := c.client.Create(ctx, sa); err != nil {
-		if errors.IsAlreadyExists(err) {
-			// ok
-			return sa, nil
+	existingSA := &corev1.ServiceAccount{}
+	err := c.targetClient.Get(ctx, client.ObjectKeyFromObject(sa), existingSA)
+	if errors.IsNotFound(err) {
+		if err := c.targetClient.Create(ctx, sa); err != nil {
+			return nil, fmt.Errorf("creating SA: %w", err)
 		}
-		return nil, err
+		return sa, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting SA: %w", err)
 	}
 
-	return sa, nil
+	return existingSA, nil
 }
 
 func (c *PermissionClaimController) reconcileRole(
@@ -232,7 +236,7 @@ func (c *PermissionClaimController) reconcileClusterRole(
 		ObjectMeta: metav1.ObjectMeta{
 			Name: claim.Name,
 		},
-		Rules: claim.Spec.Rules,
+		Rules: claim.Spec.ClusterRules,
 	}
 	if err := c.ownerStrategy.SetControllerReference(claim, desiredRole, c.scheme); err != nil {
 		return nil, fmt.Errorf("set controller reference: %w", err)
@@ -289,7 +293,7 @@ func (c *PermissionClaimController) reconcileRoleBinding(
 		return fmt.Errorf("set controller reference: %w", err)
 	}
 
-	if err := c.client.Create(ctx, desiredRole); err != nil {
+	if err := c.targetClient.Create(ctx, desiredRole); err != nil {
 		if errors.IsAlreadyExists(err) {
 			// ok
 			return nil
@@ -329,7 +333,7 @@ func (c *PermissionClaimController) reconcileClusterRoleBinding(
 		return fmt.Errorf("set controller reference: %w", err)
 	}
 
-	if err := c.client.Create(ctx, desiredRole); err != nil {
+	if err := c.targetClient.Create(ctx, desiredRole); err != nil {
 		if errors.IsAlreadyExists(err) {
 			// ok
 			return nil

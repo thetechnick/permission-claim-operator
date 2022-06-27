@@ -4,13 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/http/pprof"
 	"os"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/yaml"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -23,7 +21,6 @@ import (
 
 	permissionapis "github.com/thetechnick/permission-claim-operator/apis"
 	"github.com/thetechnick/permission-claim-operator/internal/controllers"
-	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
 var (
@@ -45,6 +42,7 @@ type opts struct {
 	namespace               string
 	probeAddr               string
 	targetClusterKubeconfig string
+	templateKubeconfig      string
 }
 
 func main() {
@@ -57,7 +55,8 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.StringVar(&opts.probeAddr, "health-probe-bind-address", ":8081",
 		"The address the probe endpoint binds to.")
-	flag.StringVar(&opts.targetClusterKubeconfig, "remote-cluster-kubeconfig", "", "Target cluster kubeconfig.")
+	flag.StringVar(&opts.targetClusterKubeconfig, "target-cluster-kubeconfig-file", "", "Target cluster kubeconfig.")
+	flag.StringVar(&opts.templateKubeconfig, "template-kubeconfig-file", "", "Template kubeconfig to create new ones from.")
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
@@ -73,6 +72,7 @@ func run(opts opts) error {
 		Scheme:                     scheme,
 		MetricsBindAddress:         opts.metricsAddr,
 		HealthProbeBindAddress:     opts.probeAddr,
+		Namespace:                  opts.namespace,
 		Port:                       9443,
 		LeaderElectionResourceLock: "leases",
 		LeaderElection:             opts.enableLeaderElection,
@@ -126,13 +126,9 @@ func run(opts opts) error {
 	}
 
 	// TargetCluster Kubeconfig
-	targetKubeconfigBytes, err := ioutil.ReadFile(opts.targetClusterKubeconfig)
+	templateKubeconfig, err := clientcmd.LoadFromFile(opts.templateKubeconfig)
 	if err != nil {
 		return fmt.Errorf("reading target cluster kubeconfig: %w", err)
-	}
-	targetKubeconfig := &clientcmdapi.Config{}
-	if err := yaml.Unmarshal(targetKubeconfigBytes, targetKubeconfig); err != nil {
-		return fmt.Errorf("parsing target cluster kubeconfig: %w", err)
 	}
 
 	// TargetCluster clients
@@ -172,7 +168,7 @@ func run(opts opts) error {
 	// Package
 	if err = (controllers.NewPermissionClaimController(
 		ctrl.Log.WithName("controllers").WithName("ClusterPackage"),
-		mgr.GetClient(), mgr.GetScheme(), targetKubeconfig, targetCachedClient, targetCache,
+		mgr.GetClient(), mgr.GetScheme(), templateKubeconfig, targetCachedClient, targetCache,
 	).SetupWithManager(mgr)); err != nil {
 		return fmt.Errorf("unable to create controller for ClusterPackage: %w", err)
 	}

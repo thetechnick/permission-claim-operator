@@ -26,16 +26,9 @@ spec:
     - delete
   clusterRules:
   - apiGroups:
-    - "addons.managed.openshift.io"
+    - ""
     resources:
-    - addons
-    - addons/status
-    - addons/finalizers
-    - addonoperators
-    - addonoperators/status
-    - addonoperators/finalizers
-    - addoninstances
-    - addoninstances/status
+    - namespaces
     verbs:
     - get
     - list
