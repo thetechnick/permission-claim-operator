@@ -25,7 +25,6 @@ spec:
         image: quay.io/nschiede/permission-claim-operator-manager:latest
         args:
         - -enable-leader-election
-        - -namespace=${PKO_NAMESPACE}
         - -target-cluster-kubeconfig-file=/data/kubeconfig
         - -template-kubeconfig-file=/data/kubeconfig
         env:
