@@ -66,6 +66,7 @@ func (c *PermissionClaimController) Reconcile(ctx context.Context, req ctrl.Requ
 	if err := c.client.Get(ctx, req.NamespacedName, claim); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	log := c.log.WithValues("PermissionClaim", req.NamespacedName.String())
 
 	if !claim.GetDeletionTimestamp().IsZero() {
 		// ObjectSet was deleted.
@@ -99,31 +100,61 @@ func (c *PermissionClaimController) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, fmt.Errorf("reconciling ClusterRoleBinding: %w", err)
 	}
 
-	if err := c.reconcileKubeconfigSecret(ctx, claim, sa); err != nil {
+	tokenSecret, err := c.reconcileTokenSecret(ctx, claim, sa)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("reconciling token Secret: %w", err)
+	}
+
+	if len(tokenSecret.Data[corev1.ServiceAccountTokenKey]) == 0 {
+		log.Info("waiting for secrets token field to be populated")
+		return ctrl.Result{}, nil
+	}
+
+	if err := c.reconcileKubeconfigSecret(ctx, claim, tokenSecret); err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconcile Kubeconfig Secret: %w", err)
 	}
 
 	return ctrl.Result{}, c.client.Status().Update(ctx, claim)
 }
-func (c *PermissionClaimController) reconcileKubeconfigSecret(
+
+func (c *PermissionClaimController) reconcileTokenSecret(
 	ctx context.Context, claim *permissionsv1alpha1.PermissionClaim,
 	sa *corev1.ServiceAccount,
+) (*corev1.Secret, error) {
+	newSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      claim.Name + "-token",
+			Namespace: claim.Spec.Namespace,
+			Annotations: map[string]string{
+				corev1.ServiceAccountNameKey: sa.Name,
+			},
+		},
+		Type: corev1.SecretTypeServiceAccountToken,
+	}
+	if err := c.ownerStrategy.SetControllerReference(claim, newSecret, c.scheme); err != nil {
+		return nil, fmt.Errorf("set controller reference: %w", err)
+	}
+
+	existingSecret := &corev1.Secret{}
+	err := c.targetClient.Get(ctx, client.ObjectKeyFromObject(newSecret), existingSecret)
+	if err != nil && errors.IsNotFound(err) {
+		if err := c.targetClient.Create(ctx, newSecret); err != nil {
+			return nil, fmt.Errorf("creating token Secret: %w", err)
+		}
+		return newSecret, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting token Secret: %w", err)
+	}
+
+	return existingSecret, nil
+}
+
+func (c *PermissionClaimController) reconcileKubeconfigSecret(
+	ctx context.Context, claim *permissionsv1alpha1.PermissionClaim,
+	tokenSecret *corev1.Secret,
 ) error {
-	if len(sa.Secrets) == 0 {
-		// wait
-		return nil
-	}
-
-	secretRef := sa.Secrets[0]
-	saTokenSecret := &corev1.Secret{}
-	if err := c.targetClient.Get(ctx, client.ObjectKey{
-		Name:      secretRef.Name,
-		Namespace: sa.Namespace,
-	}, saTokenSecret); err != nil {
-		return fmt.Errorf("getting ServiceAccount token secret: %w", err)
-	}
-
-	token := saTokenSecret.Data[corev1.ServiceAccountTokenKey]
+	token := tokenSecret.Data[corev1.ServiceAccountTokenKey]
 	newKubeconfig := c.baseKubeconfig.DeepCopy()
 
 	// replace all auth with the SA token:
@@ -369,6 +400,10 @@ func (c *PermissionClaimController) SetupWithManager(mgr ctrl.Manager) error {
 		).
 		Watches(
 			source.NewKindWithCache(&rbacv1.RoleBinding{}, c.targetCache),
+			h,
+		).
+		Watches(
+			source.NewKindWithCache(&corev1.Secret{}, c.targetCache),
 			h,
 		).
 		Complete(c)

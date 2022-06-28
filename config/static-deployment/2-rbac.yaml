@@ -41,6 +41,8 @@ rules:
   - permissions.thetechnick.ninja
   resources:
   - permissionclaims
+  - permissionclaims/finalizers
+  - permissionclaims/status
   verbs:
   - get
   - list
