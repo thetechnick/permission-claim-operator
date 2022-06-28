@@ -79,10 +79,7 @@ func (Build) Version() {
 
 func (Build) Binaries() {
 	mg.Deps(
-		// mg.F(Builder.Cmd, "package-operator-manager", "linux", "amd64"),
-		// mg.F(Builder.Cmd, "coordination-operator-manager", "linux", "amd64"),
-		// mg.F(Builder.Cmd, "package-phase-manager", "linux", "amd64"),
-		// mg.F(Builder.Cmd, "package-loader", "linux", "amd64"),
+		mg.F(Builder.Cmd, "permission-claim-operator-manager", "linux", "amd64"),
 		mg.F(Builder.Cmd, "mage", "", ""),
 	)
 }
@@ -95,12 +92,7 @@ func (Build) Image(image string) {
 
 func (Build) Images() {
 	mg.Deps(
-	// mg.F(Builder.Image, "package-operator-manager"),
-	// mg.F(Builder.Image, "coordination-operator-manager"),
-	// mg.F(Builder.Image, "package-phase-manager"),
-	// mg.F(Builder.Image, "package-loader"),
-	// mg.F(Builder.Image, "package-operator"),
-	// mg.F(Builder.Image, "coordination-operator"),
+		mg.F(Builder.Image, "permission-claim-operator-manager"),
 	)
 }
 
@@ -112,12 +104,7 @@ func (Build) PushImage(image string) {
 
 func (Build) PushImages() {
 	mg.Deps(
-	// mg.F(Builder.Push, "package-operator-manager"),
-	// mg.F(Builder.Push, "package-phase-manager"),
-	// mg.F(Builder.Push, "package-loader"),
-	// mg.F(Builder.Push, "package-operator"),
-	// mg.F(Builder.Push, "coordination-operator"),
-	// mg.F(Builder.Push, "nginx"),
+		mg.F(Builder.Push, "permission-claim-operator-manager"),
 	)
 }
 
@@ -389,7 +376,7 @@ func (Generate) code() error {
 		return fmt.Errorf("removing go:build annotation: %w", err)
 	}
 
-	crds, err := filepath.Glob("config/crds/packages*.yaml")
+	crds, err := filepath.Glob("config/crds/permissions*.yaml")
 	if err != nil {
 		return fmt.Errorf("finding CRDs: %w", err)
 	}
